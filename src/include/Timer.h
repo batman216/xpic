@@ -13,6 +13,7 @@ public:
   Timer();
   Timer(std::string);
 
+  void open(std::string);
   void tick();
   void tock();
 

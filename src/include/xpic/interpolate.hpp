@@ -9,6 +9,7 @@
 #include <iostream>
 #include <chrono>
 
+#include "../Timer.h"
 #include <thrust/reduce.h>
 #include <thrust/sequence.h>
 #include <thrust/sort.h>
@@ -17,6 +18,7 @@
 #include <thrust/tuple.h>
 #include <thrust/for_each.h>
 #include <thrust/shuffle.h>
+#include <thrust/fill.h>
 #include <thrust/random.h>
 
 struct DoNotFlip {
@@ -125,6 +127,8 @@ struct cudaDataTypeTraits {
   }
 };
 
+#define SGET(t,i) (std::get<i>(t))
+#define TGET(t,i) (thrust::get<i>(t))
 namespace xpic {
 
 
@@ -153,47 +157,42 @@ namespace xpic {
 
     __host__ __device__
     void operator()(tuple_reference t)  {
+
       std::array<val_type,xdim> x;
-        x[0] = fmod(thrust::get<0>(thrust::get<0>(t)),
-                    std::get<0>(hn))/std::get<0>(hn);
-        x[1] = fmod(thrust::get<1>(thrust::get<0>(t)),
-                    std::get<1>(hn))/std::get<1>(hn);
-        x[2] = fmod(thrust::get<2>(thrust::get<0>(t)),
-                    std::get<2>(hn))/std::get<2>(hn);
 
-        idx_type i1 = floor(std::abs(thrust::get<0>(thrust::get<0>(t)))
-                            /std::get<0>(hn)),
-                 i2 = floor(std::abs(thrust::get<1>(thrust::get<0>(t)))
-                            /std::get<1>(hn)),
-                 i3 = floor(std::abs(thrust::get<2>(thrust::get<0>(t)))
-                            /std::get<2>(hn));
+      x[0] = fmod(TGET(TGET(t,0),0),SGET(hn,0))/SGET(hn,0);
+      x[1] = fmod(TGET(TGET(t,0),1),SGET(hn,1))/SGET(hn,1);
+      x[2] = fmod(TGET(TGET(t,0),2),SGET(hn,2))/SGET(hn,2);
 
-        idx_type n1 = std::get<xdim>(hn), n2 = std::get<xdim+1>(hn),
-                 n3 = std::get<xdim+2>(hn);
+      idx_type i1 = floor(std::abs(TGET(TGET(t,0),0))/SGET(hn,0)),
+               i2 = floor(std::abs(TGET(TGET(t,0),1))/SGET(hn,1)),
+               i3 = floor(std::abs(TGET(TGET(t,0),2))/SGET(hn,2));
 
-        thrust::get<0>(thrust::get<1>(t)) = min(i1+i2*n1+i3*n1*n2,n1*n2*n3-1); 
-        thrust::get<0>(thrust::get<2>(t)) = x[0]*x[1]*x[2]; 
+      idx_type n1 = SGET(hn,xdim), n2 = SGET(hn,xdim+1), n3 = SGET(hn,xdim+2);
 
-        thrust::get<1>(thrust::get<1>(t)) = min((i1+1)+i2*n1+i3*n1*n2,n1*n2*n3-1); 
-        thrust::get<1>(thrust::get<2>(t)) = (1.0-x[0])*x[1]*x[2]; 
+      TGET(TGET(t,1),0) = min(i1+i2*n1+i3*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),0) = x[0]*x[1]*x[2]; 
 
-        thrust::get<2>(thrust::get<1>(t)) = min((i1+1)+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
-        thrust::get<2>(thrust::get<2>(t)) = (1.0-x[0])*(1.0-x[1])*x[2]; 
+      TGET(TGET(t,1),1) = min((i1+1)+i2*n1+i3*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),1) = (1.0-x[0])*x[1]*x[2]; 
 
-        thrust::get<3>(thrust::get<1>(t)) = min(i1+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
-        thrust::get<3>(thrust::get<2>(t)) = x[0]*(1.0-x[1])*x[2]; 
+      TGET(TGET(t,1),2) = min((i1+1)+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),2) = (1.0-x[0])*(1.0-x[1])*x[2]; 
 
-        thrust::get<4>(thrust::get<1>(t)) = min(i1+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-        thrust::get<4>(thrust::get<2>(t)) = x[0]*x[1]*(1.0-x[2]); 
+      TGET(TGET(t,1),3) = min(i1+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),3) = x[0]*(1.0-x[1])*x[2]; 
 
-        thrust::get<5>(thrust::get<1>(t)) = min((i1+1)+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-        thrust::get<5>(thrust::get<2>(t)) = (1.0-x[0])*x[1]*(1.0-x[2]); 
+      TGET(TGET(t,1),4) = min(i1+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),4) = x[0]*x[1]*(1.0-x[2]); 
 
-        thrust::get<6>(thrust::get<1>(t)) = min((i1+1)+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-        thrust::get<6>(thrust::get<2>(t)) = (1.0-x[0])*(1.0-x[1])*(1.0-x[2]); 
+      TGET(TGET(t,1),5) = min((i1+1)+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),5) = (1.0-x[0])*x[1]*(1.0-x[2]); 
 
-        thrust::get<7>(thrust::get<1>(t)) = min(i1+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-        thrust::get<7>(thrust::get<2>(t)) = x[0]*(1.0-x[1])*(1.0-x[2]); 
+      TGET(TGET(t,1),6) = min((i1+1)+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),6) = (1.0-x[0])*(1.0-x[1])*(1.0-x[2]); 
+
+      TGET(TGET(t,1),7) = min(i1+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
+      TGET(TGET(t,2),7) = x[0]*(1.0-x[1])*(1.0-x[2]); 
 
     }
 
@@ -202,10 +201,13 @@ namespace xpic {
   template <typename Particle, typename Cell>
   struct Interpolate {
 
+    Timer t1, t2;
     static const std::size_t xdim = Particle::x_dimension;
 
     using val_type = Particle::value_t;
     using idx_type = std::size_t;
+    using ValItor  = thrust::device_vector<val_type>::iterator;
+    using IdxItor  = thrust::device_vector<idx_type>::iterator;
 
     cudaDataType_t cudaDataType = cudaDataTypeTraits<val_type>::type();
     cusparseIndexType_t cusparseIndexType = cusparseIndexTypeTraits<idx_type>::type(); 
@@ -222,6 +224,18 @@ namespace xpic {
     thrust::device_vector<val_type> A_vals;
     thrust::device_vector<val_type> X,Y;
 
+    using ParticleZipper = thrust::zip_iterator<thrust::tuple<ValItor,ValItor,ValItor>>;
+    using ColZipper      = thrust::zip_iterator<thrust::tuple<IdxItor,IdxItor,IdxItor,IdxItor,
+                                                              IdxItor,IdxItor,IdxItor,IdxItor>>;
+    using ValZipper      = thrust::zip_iterator<thrust::tuple<ValItor,ValItor,ValItor,ValItor,
+                                                              ValItor,ValItor,ValItor,ValItor>>;
+    using IntpZipper     = thrust::zip_iterator<thrust::tuple<ParticleZipper,ColZipper,ValZipper>>;
+
+    ParticleZipper z_itor_p;
+    ColZipper      z_itor_col;
+    ValZipper      z_itor_val;
+    IntpZipper     zz_itor;
+
     idx_type n_g, n_p, n_rows, n_cols, n_nz;    
 
     Particle *particles;
@@ -229,6 +243,9 @@ namespace xpic {
 
     Interpolate(Particle* particles, Cell* cells) 
     : particles(particles), cells(cells) {
+
+      t1.open("prepare the matrix");
+      t2.open("cuSPARSE");
 
       n_g = cells->n_cell_tot;
       n_p = particles->x[0].size();
@@ -242,10 +259,23 @@ namespace xpic {
       A_vals.resize(n_nz);
       X.resize(n_cols); Y.resize(n_rows);
 
-      thrust::sequence(X.begin(),X.end(),1.0,0.0);
-
+      std::puts("Interpolater good");
+      using thrust::make_zip_iterator;
+      z_itor_p   = make_zip_iterator(particles->x[0].begin(),
+                                     particles->x[1].begin(),
+                                     particles->x[2].begin());
+      z_itor_col = make_zip_iterator(A_cols.begin()+0*n_p,A_cols.begin()+1*n_p,
+                                     A_cols.begin()+2*n_p,A_cols.begin()+3*n_p,
+                                     A_cols.begin()+4*n_p,A_cols.begin()+5*n_p,
+                                     A_cols.begin()+6*n_p,A_cols.begin()+7*n_p);
+      z_itor_val = make_zip_iterator(A_vals.begin()+0*n_p,A_vals.begin()+1*n_p,
+                                     A_vals.begin()+2*n_p,A_vals.begin()+3*n_p,
+                                     A_vals.begin()+4*n_p,A_vals.begin()+5*n_p,
+                                     A_vals.begin()+6*n_p,A_vals.begin()+7*n_p);
+      zz_itor    = make_zip_iterator(z_itor_p,z_itor_col,z_itor_val);
+      
       cusparseCreate(&handle);
-      cusparseCreateCoo(&matA, n_rows, n_cols, n_nz,
+      cusparseCreateCoo(&matA, n_cols, n_rows, n_nz,
                         thrust::raw_pointer_cast(A_rows.data()),
                         thrust::raw_pointer_cast(A_cols.data()),
                         thrust::raw_pointer_cast(A_vals.data()),
@@ -257,19 +287,21 @@ namespace xpic {
       cusparseCreateDnVec(&vecY, n_rows, 
                           thrust::raw_pointer_cast(Y.data()),cudaDataType);
 
-      cudaMalloc(&dBuffer,bufferSize); 
+      thrust::fill(X.begin(),X.end(),1.0);
     }
 
     void go() {
-      // index of particles
+
+      t1.tick();
       idx_type dot = pow(2,xdim);
+      // index of particles
+      // cuSPARSE requires that A_rows must be sorted.
       thrust::transform(thrust::make_counting_iterator((idx_type)0),
                         thrust::make_counting_iterator(n_nz),
-                        A_cols.begin(),[dot]__host__ __device__(idx_type idx) 
+                        A_rows.begin(),[dot]__host__ __device__(idx_type idx) 
                         { return idx/dot; });
      
       if constexpr (xdim==3) {
-
         val_type d1,d2,d3; 
         idx_type n1,n2,n3;
         n1 = cells->n_cell[0];
@@ -278,47 +310,25 @@ namespace xpic {
         d1 = (cells->upper_bound[0]-cells->lower_bound[0])/n1; 
         d2 = (cells->upper_bound[1]-cells->lower_bound[1])/n2; 
         d3 = (cells->upper_bound[2]-cells->lower_bound[2])/n3; 
-
-        auto z_itor_p = thrust::make_zip_iterator(particles->x[0].begin(),
-                                                  particles->x[1].begin(),
-                                                  particles->x[2].begin());
-
-        auto z_itor_row = thrust::
-                            make_zip_iterator(A_rows.begin()+0*n_p,A_rows.begin()+1*n_p,
-                                              A_rows.begin()+2*n_p,A_rows.begin()+3*n_p,
-                                              A_rows.begin()+4*n_p,A_rows.begin()+5*n_p,
-                                              A_rows.begin()+6*n_p,A_rows.begin()+7*n_p);
-        auto z_itor_val = thrust::
-                            make_zip_iterator(A_vals.begin()+0*n_p,A_vals.begin()+1*n_p,
-                                              A_vals.begin()+2*n_p,A_vals.begin()+3*n_p,
-                                              A_vals.begin()+4*n_p,A_vals.begin()+5*n_p,
-                                              A_vals.begin()+6*n_p,A_vals.begin()+7*n_p);
-
-        auto zz_itor = thrust::make_zip_iterator(z_itor_p,z_itor_row,z_itor_val);
-
         
         thrust::for_each(zz_itor,zz_itor+n_p,calVal(d1,d2,d3,n1,n2,n3));
       }
 
-      // cuSPARSE requires that A_rows must be sorted.
-      auto A_cv_begin = thrust::make_zip_iterator(A_cols.begin(),A_vals.begin());
-      thrust::sort_by_key(A_rows.begin(),A_rows.end(),A_cv_begin);
-        
+      cudaDeviceSynchronize();
+      t1.tock();
       // 最后一个网格不一定有粒子，因此最大行数不一定是网格总数
-      idx_type n_row_max = 1+thrust::reduce(A_rows.begin(),A_rows.end(),
-                                       thrust::device_vector<idx_type>::value_type(),
-                                       thrust::maximum<idx_type>());
+
+      t2.tick();
       cusparseSpMV_bufferSize(handle,
-                              CUSPARSE_OPERATION_NON_TRANSPOSE,
+                              CUSPARSE_OPERATION_TRANSPOSE,
                               &alpha,matA,vecX,&beta,vecY,cudaDataType,
                               CUSPARSE_SPMV_ALG_DEFAULT,&bufferSize);
       cudaMalloc(&dBuffer,bufferSize); 
-      
-      cusparseSpMV(handle,
-                   CUSPARSE_OPERATION_NON_TRANSPOSE,
+      cusparseSpMV(handle,CUSPARSE_OPERATION_TRANSPOSE,
                    &alpha,matA,vecX,&beta,vecY,cudaDataType,
                    CUSPARSE_SPMV_ALG_DEFAULT,dBuffer);
-
+      cudaDeviceSynchronize();
+      t2.tock();
     }
 
     ~Interpolate() {

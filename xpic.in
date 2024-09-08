@@ -6,22 +6,24 @@
 @ Particles ---------------------------*
 
 n_species           =     1
-particle_per_cell   =     3,       1
+particle_per_cell   =    10,       1
 mass                =  1.00,  1836.15
 charge              = -1.00,     1.00
 
-temperature         =     1,       2
-mean_vx1            =     0,       0
-mean_vx2            =     0,       0
-mean_vx3            =     0,       0
+thermal_v1          =    0.1,       0
+thermal_v2          =    0.1,       0
+thermal_v3          =    0.1,       0
+drift_v1            =     0,       0
+drift_v2            =     0,       0
+drift_v3            =     0,       0
 
 @ Particles ---------------------------*
 
 @ Cells -------------------------------*
 
-n_cell              =  100, 100, 100
-lower_bound         =    0,   0,   0
-upper_bound         =   36,  18,  18
+n_cell              =    200,  200,  200
+lower_bound         =     0,   0,   0
+upper_bound         =    36,  18,  18
 
 @ Cells ------------------------------*
 
