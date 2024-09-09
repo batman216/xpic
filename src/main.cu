@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <hdf5.h>
+#include <mpi.h>
 #include <chrono>
 
 #include "thrust/device_vector.h"
@@ -11,6 +12,7 @@
 #include "include/xpic/particle/push_methods.hpp"
 #include "include/xpic/loadParticle.hpp"
 #include "include/xpic/interpolate.hpp"
+#include "include/xpic/ParallelCommunicator.hpp"
 #include "include/Timer.h"
 
 #define L_ t0.tick();
@@ -25,9 +27,8 @@
 using Real = double;
 
 int main(int argc, char** argv) {
-
-  cudaSetDevice(1);
-  cudaDeviceSetLimit(cudaLimitMallocHeapSize,1073741824);
+  
+  MPI_Init(&argc,&argv);
 
   xpic::ParticleInCell<Real,3,3> pic; 
 
@@ -38,6 +39,12 @@ int main(int argc, char** argv) {
   Timer t0("Load particle"),t1("push particle"), t2("Interpolate"); 
 
   L_ xpic::loadParticle(&pic); _L
+
+  int mpi_rank, mpi_size; 
+  MPI_Comm_size(MPI_COMM_WORLD,&mpi_size);
+  MPI_Comm_rank(MPI_COMM_WORLD,&mpi_rank);
+  xpic::ParallelCommunicator<std::size_t,Real>
+    para(mpi_rank,mpi_size,MPI_COMM_WORLD);
 
   xpic::Interpolate interpolate(&pic.all_particles[0],&pic.cells);
 
