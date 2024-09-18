@@ -24,6 +24,7 @@ void getHostName(char *hostname, int maxlen) {
         }
     }
 }
+
 template <typename idx_type, typename val_type>
 struct ParallelCommunicator {
 

@@ -2,6 +2,7 @@
 
 #include <type_traits>
 #include <limits>
+#include <utility>
 #include <cusparse.h>
 #include <cuda_runtime_api.h>
 #include <stdlib.h>
@@ -10,6 +11,9 @@
 #include <chrono>
 
 #include "../Timer.h"
+#include "detail/xpic_traits.hpp"
+#include "detail/interpolate_scheme.hpp"
+
 #include <thrust/reduce.h>
 #include <thrust/sequence.h>
 #include <thrust/sort.h>
@@ -21,178 +25,75 @@
 #include <thrust/fill.h>
 #include <thrust/random.h>
 
-struct DoNotFlip {
-  template <typename idx_type>
-  __host__ __device__
-  idx_type static cal(idx_type stride, std::size_t chunk, const idx_type& idx) {
-    std::size_t pos = idx/chunk;
-    return pos * stride + idx-(pos*chunk);
-  }
-};
-
-
-struct Flip {
-  template <typename idx_type>
-  __host__ __device__
-  idx_type static cal(idx_type stride, std::size_t chunk, const idx_type& idx) {
-    std::size_t pos = idx/chunk;
-    return pos * stride + chunk -idx+(pos*chunk)-1;
-  }
-};
-
-template <typename Iterator, 
-          typename Policy = DoNotFlip>
-class strided_chunk_range
-{
-public:
-
-  typedef typename thrust::iterator_difference<
-                        Iterator>::type difference_type;
-  struct stride_functor : 
-  public thrust::unary_function<difference_type,difference_type> {
-    difference_type stride;
-    std::size_t chunk;
-
-    stride_functor(difference_type stride, int chunk)
-    : stride(stride), chunk(chunk) {}
-
-    __host__ __device__
-    difference_type operator()(const difference_type& i) const {
-
-      // 0,1,..., chunk-1, stride+0, stride+1,..., stride+chunk-1, 
-      // 2*stride+0, 2*stride+1,..., 2*stride+chunk-1, 
-
-      return Policy::cal(stride,chunk,i);
-    }
-  };
-
-  typedef typename thrust::counting_iterator
-    <difference_type> CountingIterator;
-  typedef typename thrust::transform_iterator
-    <stride_functor, CountingIterator> TransformIterator;
-  typedef typename thrust::permutation_iterator
-    <Iterator,TransformIterator> PermutationIterator;
-
-  // type of the strided_range iterator
-  typedef PermutationIterator iterator;
-
-  // construct strided_range for the range [first,last)
-  strided_chunk_range(Iterator first, Iterator last, 
-                      difference_type stride, int chunk)
-  : first(first), last(last), stride(stride), chunk(chunk) { 
-    assert(chunk<=stride); 
-  }
-
-  iterator begin(void) const {
-    return PermutationIterator(first,
-              TransformIterator(CountingIterator(0),
-                                stride_functor(stride, chunk)));
-  }
-  
-  iterator end(void) const
-  {
-    difference_type lmf = last-first;
-    difference_type nfs = lmf/stride;
-    difference_type rem = lmf-(nfs*stride);
-    return begin() + (nfs*chunk) + ((rem<chunk)?rem:chunk);
-  }
-
-  protected:
-    Iterator first;
-    Iterator last;
-    difference_type stride;
-    int chunk;
-};
-
-
-
-template <typename idx_type>
-struct cusparseIndexTypeTraits {
-  static constexpr cusparseIndexType_t type() {
-    if constexpr (sizeof(idx_type)==4)
-      return CUSPARSE_INDEX_32I;
-    else if  (sizeof(idx_type)==8)
-      return CUSPARSE_INDEX_64I;
-  }
-};
-
-
-template <typename val_type>
-struct cudaDataTypeTraits {
-  static constexpr cudaDataType_t type() {
-    if constexpr (sizeof(val_type)==4)
-      return CUDA_R_32F;
-    else if  (sizeof(val_type)==8)
-      return CUDA_R_64F;
-  }
-};
-
-#define SGET(t,i) (std::get<i>(t))
-#define TGET(t,i) (thrust::get<i>(t))
 namespace xpic {
 
+  template <typename idx_type>
+  constexpr idx_type static_pow(idx_type val,std::size_t n) {
+    return  (n==0) ? 1 : (val*static_pow(val,n-1));
+  }
 
   template <typename ...Args>
   struct calVal {
+
     static constexpr std::size_t xdim = sizeof...(Args)/2;
     using val_type = typename std::tuple_element<0, std::tuple<Args...>>::type;
     using idx_type = typename std::tuple_element<xdim, std::tuple<Args...>>::type;
-    using tuple_reference = thrust::detail::
-                            tuple_of_iterator_references
-                            <thrust::detail::
-                             tuple_of_iterator_references<
-                               val_type&,val_type&,val_type&>,
-                             thrust::detail::
-                             tuple_of_iterator_references<
-                               idx_type&,idx_type&,idx_type&,idx_type&,
-                               idx_type&,idx_type&,idx_type&,idx_type&>,
-                             thrust::detail::
-                             tuple_of_iterator_references<
-                               val_type&,val_type&,val_type&,val_type&,
-                               val_type&,val_type&,val_type&,val_type&>>;
+    
+    using tuple_reference = typename tupleTraits<val_type,idx_type,xdim>::tuple_reference;
+    using cell_tuple = typename tupleTraits<val_type,idx_type,xdim>::cell_tuple;
+    using particle_tuple = typename tupleTraits<val_type,idx_type,xdim>::particle_tuple;
+
     std::tuple<Args...> hn;
+    std::array<val_type,xdim> dx; 
+    std::array<idx_type,xdim> ng;
 
     __host__ __device__
-    calVal(Args...args) : hn{ args... } {}
+    calVal(Args...args) : hn{ args... } {
+      dx[0] = std::get<0>(hn);
+      ng[0] = std::get<0+xdim>(hn);
+      if constexpr (xdim>1) {
+        dx[1] = std::get<1>(hn);
+        ng[1] = std::get<1+xdim>(hn);
+      } 
+      if constexpr (xdim>2) {
+        dx[2] = std::get<2>(hn);
+        ng[2] = std::get<2+xdim>(hn);
+      }
+    }
+
+
+
+    template <std::size_t...idx>
+    __host__ __device__
+    auto calIndex(std::index_sequence<idx...>, 
+                  std::array<val_type,xdim> index,
+                  std::array<idx_type,xdim> ng) {
+      return thrust::make_tuple(xpic::apply(index_of_each_node<idx>(),index,ng)...);
+    }
+
+    template <std::size_t...idx>
+    __host__ __device__
+    auto calWeight(std::index_sequence<idx...>, 
+                   std::array<val_type,xdim> wei) {
+      return thrust::make_tuple(xpic::apply(weight_to_each_node<idx>(),wei)...);
+    }
+
 
     __host__ __device__
     void operator()(tuple_reference t)  {
 
-      std::array<val_type,xdim> x;
+      constexpr std::size_t num_nodes = static_pow(2,xdim);
 
-      x[0] = fmod(TGET(TGET(t,0),0),SGET(hn,0))/SGET(hn,0);
-      x[1] = fmod(TGET(TGET(t,0),1),SGET(hn,1))/SGET(hn,1);
-      x[2] = fmod(TGET(TGET(t,0),2),SGET(hn,2))/SGET(hn,2);
-
-      idx_type i1 = floor(std::abs(TGET(TGET(t,0),0))/SGET(hn,0)),
-               i2 = floor(std::abs(TGET(TGET(t,0),1))/SGET(hn,1)),
-               i3 = floor(std::abs(TGET(TGET(t,0),2))/SGET(hn,2));
-
-      idx_type n1 = SGET(hn,xdim), n2 = SGET(hn,xdim+1), n3 = SGET(hn,xdim+2);
-
-      TGET(TGET(t,1),0) = min(i1+i2*n1+i3*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),0) = x[0]*x[1]*x[2]; 
-
-      TGET(TGET(t,1),1) = min((i1+1)+i2*n1+i3*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),1) = (1.0-x[0])*x[1]*x[2]; 
-
-      TGET(TGET(t,1),2) = min((i1+1)+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),2) = (1.0-x[0])*(1.0-x[1])*x[2]; 
-
-      TGET(TGET(t,1),3) = min(i1+(i2+1)*n1+i3*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),3) = x[0]*(1.0-x[1])*x[2]; 
-
-      TGET(TGET(t,1),4) = min(i1+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),4) = x[0]*x[1]*(1.0-x[2]); 
-
-      TGET(TGET(t,1),5) = min((i1+1)+i2*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),5) = (1.0-x[0])*x[1]*(1.0-x[2]); 
-
-      TGET(TGET(t,1),6) = min((i1+1)+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),6) = (1.0-x[0])*(1.0-x[1])*(1.0-x[2]); 
-
-      TGET(TGET(t,1),7) = min(i1+(i2+1)*n1+(i3+1)*n1*n2,n1*n2*n3-1); 
-      TGET(TGET(t,2),7) = x[0]*(1.0-x[1])*(1.0-x[2]); 
+      std::array<val_type,xdim> idx,wei;
+      
+      wei[0] = std::modf(TGET(TGET(t,0),0)/dx[0],idx.data());
+      if constexpr (xdim>1)
+        wei[1] = std::modf(TGET(TGET(t,0),1)/dx[1],idx.data()+1);
+      if constexpr (xdim>2) 
+        wei[2] = std::modf(TGET(TGET(t,0),2)/dx[2],idx.data()+2);
+      
+      TGET(t,1)=calIndex(std::make_index_sequence<num_nodes>{},idx,ng);
+      TGET(t,2)=calWeight(std::make_index_sequence<num_nodes>{},wei);
 
     }
 
@@ -206,8 +107,7 @@ namespace xpic {
 
     using val_type = Particle::value_t;
     using idx_type = std::size_t;
-    using ValItor  = thrust::device_vector<val_type>::iterator;
-    using IdxItor  = thrust::device_vector<idx_type>::iterator;
+
 
     cudaDataType_t cudaDataType = cudaDataTypeTraits<val_type>::type();
     cusparseIndexType_t cusparseIndexType = cusparseIndexTypeTraits<idx_type>::type(); 
@@ -224,11 +124,9 @@ namespace xpic {
     thrust::device_vector<val_type> A_vals;
     thrust::device_vector<val_type> X,Y;
 
-    using ParticleZipper = thrust::zip_iterator<thrust::tuple<ValItor,ValItor,ValItor>>;
-    using ColZipper      = thrust::zip_iterator<thrust::tuple<IdxItor,IdxItor,IdxItor,IdxItor,
-                                                              IdxItor,IdxItor,IdxItor,IdxItor>>;
-    using ValZipper      = thrust::zip_iterator<thrust::tuple<ValItor,ValItor,ValItor,ValItor,
-                                                              ValItor,ValItor,ValItor,ValItor>>;
+    using ParticleZipper = tupleTraits<val_type,idx_type,xdim>::ParticleZipper;
+    using ColZipper      = tupleTraits<val_type,idx_type,xdim>::ColZipper;
+    using ValZipper      = tupleTraits<val_type,idx_type,xdim>::ValZipper;
     using IntpZipper     = thrust::zip_iterator<thrust::tuple<ParticleZipper,ColZipper,ValZipper>>;
 
     ParticleZipper z_itor_p;

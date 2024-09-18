@@ -43,6 +43,7 @@ int main(int argc, char** argv) {
   int mpi_rank, mpi_size; 
   MPI_Comm_size(MPI_COMM_WORLD,&mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD,&mpi_rank);
+
   xpic::ParallelCommunicator<std::size_t,Real>
     para(mpi_rank,mpi_size,MPI_COMM_WORLD);
 
@@ -53,16 +54,17 @@ int main(int argc, char** argv) {
   std::ofstream pos("Y.data",std::ios::out);
   std::ofstream fieldos("field.data",std::ios::out);
 
-  int step = 0, total_step = 100;
+  int step = 0, total_step = 1;
   while (step++<total_step) {
 
-    p_  pusher.push(&pic.all_particles[0],&pic.cells); _p
+    p_ pusher.push(&pic.all_particles[0],&pic.cells); _p
 
     I_ interpolate.go(); _I
-/*
+
     thrust::copy(interpolate.Y.begin(),interpolate.Y.end(),
                  std::ostream_iterator<Real>(fieldos," "));
     fieldos << std::endl;
+    /*
     thrust::copy(pic.all_particles[0].x[0].begin(),pic.all_particles[0].x[0].end(),
                  std::ostream_iterator<Real>(pos," "));
     thrust::copy(pic.all_particles[0].x[1].begin(),pic.all_particles[0].x[1].end(),
@@ -77,7 +79,7 @@ int main(int argc, char** argv) {
     thrust::copy(pic.all_particles[0].v[2].begin(),pic.all_particles[0].v[2].end(),
                  std::ostream_iterator<Real>(pos," "));
     pos << std::endl;
-*/
+    */
   }
 
   fieldos.close();
