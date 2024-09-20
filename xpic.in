@@ -6,14 +6,14 @@
 @ Particles ---------------------------*
 
 n_species           =     1
-particle_per_cell   =    10,       1
+particle_per_cell   =     1,       1
 mass                =  1.00,  1836.15
 charge              = -1.00,     1.00
 
 thermal_v1          =    0.1,       0
 thermal_v2          =    0.1,       0
 thermal_v3          =    0.1,       0
-drift_v1            =     0,       0
+drift_v1            =     -1,       0
 drift_v2            =     0,       0
 drift_v3            =     0,       0
 

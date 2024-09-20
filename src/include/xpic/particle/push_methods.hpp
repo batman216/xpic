@@ -43,13 +43,9 @@ struct SymplecticEuler {
   template <typename Cells>
   void push(Particles* p, Cells *c) {
     
-    auto n = p->x[0].size();
-    auto zip_itor = thrust::make_zip_iterator(p->x[0].begin(),
-                                              p->x[1].begin(),
-                                              p->x[2].begin(),
-                                              p->v[0].begin(),
-                                              p->v[1].begin(),
-                                              p->v[2].begin());
+    auto n = p->x[0]->size();
+    auto zip_itor = p->particle_zip_iterator();
+
     thrust::for_each(zip_itor, zip_itor+n, Push<val_type>(dt));
 
   }

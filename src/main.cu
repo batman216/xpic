@@ -10,6 +10,7 @@
 #include "thrust/execution_policy.h"
 #include "include/xpic/ParticleInCell.hpp"
 #include "include/xpic/particle/push_methods.hpp"
+#include "include/xpic/particle/Swap.hpp"
 #include "include/xpic/loadParticle.hpp"
 #include "include/xpic/interpolate.hpp"
 #include "include/xpic/ParallelCommunicator.hpp"
@@ -28,63 +29,44 @@ using Real = double;
 
 int main(int argc, char** argv) {
   
-  MPI_Init(&argc,&argv);
+  xpic::ParallelCommunicator<std::size_t,Real> para;
 
-  xpic::ParticleInCell<Real,3,3> pic; 
+  xpic::ParticleInCell<Real,3,3> pic(&para); 
 
   std::cout << pic.n_species << std::endl;
 
-  std::size_t np = pic.np_init[0];
-
-  Timer t0("Load particle"),t1("push particle"), t2("Interpolate"); 
+  Timer t0("Load particle"),t1("partition"), t2("Interpolate"); 
 
   L_ xpic::loadParticle(&pic); _L
+    
 
-  int mpi_rank, mpi_size; 
-  MPI_Comm_size(MPI_COMM_WORLD,&mpi_size);
-  MPI_Comm_rank(MPI_COMM_WORLD,&mpi_rank);
+//  xpic::Interpolate interpolate(&pic.all_particles[0],&pic.cells);
 
-  xpic::ParallelCommunicator<std::size_t,Real>
-    para(mpi_rank,mpi_size,MPI_COMM_WORLD);
+  xpic::particle::SymplecticEuler push(&pic.all_particles[0],0.2);
 
-  xpic::Interpolate interpolate(&pic.all_particles[0],&pic.cells);
+  std::ofstream fieldos("field@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
+  std::ofstream pos("Y@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
 
-  xpic::particle::SymplecticEuler pusher(&pic.all_particles[0],0.2);
+  xpic::particle::Swap swap(&pic);
+  p_ swap(&pic.all_particles[0]);_p
 
-  std::ofstream pos("Y.data",std::ios::out);
-  std::ofstream fieldos("field.data",std::ios::out);
-
-  int step = 0, total_step = 1;
+  int step = 0, total_step = 5;
   while (step++<total_step) {
+  
+    push.push(&pic.all_particles[0],&pic.cells);
+    swap(&pic.all_particles[0]);
 
-    p_ pusher.push(&pic.all_particles[0],&pic.cells); _p
-
-    I_ interpolate.go(); _I
-
-    thrust::copy(interpolate.Y.begin(),interpolate.Y.end(),
-                 std::ostream_iterator<Real>(fieldos," "));
-    fieldos << std::endl;
-    /*
-    thrust::copy(pic.all_particles[0].x[0].begin(),pic.all_particles[0].x[0].end(),
-                 std::ostream_iterator<Real>(pos," "));
-    thrust::copy(pic.all_particles[0].x[1].begin(),pic.all_particles[0].x[1].end(),
-                 std::ostream_iterator<Real>(pos," "));
-    thrust::copy(pic.all_particles[0].x[2].begin(),pic.all_particles[0].x[2].end(),
-                 std::ostream_iterator<Real>(pos," "));
-
-    thrust::copy(pic.all_particles[0].v[0].begin(),pic.all_particles[0].v[0].end(),
-                 std::ostream_iterator<Real>(pos," "));
-    thrust::copy(pic.all_particles[0].v[1].begin(),pic.all_particles[0].v[1].end(),
-                 std::ostream_iterator<Real>(pos," "));
-    thrust::copy(pic.all_particles[0].v[2].begin(),pic.all_particles[0].v[2].end(),
-                 std::ostream_iterator<Real>(pos," "));
-    pos << std::endl;
-    */
+    for (std::size_t d=0; d<3; d++) {
+      thrust::copy(pic.all_particles[0].x[d]->begin(),
+                   pic.all_particles[0].x[d]->end(),
+                   std::ostream_iterator<Real>(pos," "));
+      pos << std::endl;
+    }
+    
   }
 
   fieldos.close();
   pos.close();
-
   /*
   pic.cells.Bfield.field.resize(pic.cells.n_cell_tot);
   thrust::generate(pic.cells.Bfield.field.begin(),pic.cells.Bfield.field.end(),

@@ -171,7 +171,6 @@ namespace xpic {
                                      A_vals.begin()+4*n_p,A_vals.begin()+5*n_p,
                                      A_vals.begin()+6*n_p,A_vals.begin()+7*n_p);
       zz_itor    = make_zip_iterator(z_itor_p,z_itor_col,z_itor_val);
-      
       cusparseCreate(&handle);
       cusparseCreateCoo(&matA, n_cols, n_rows, n_nz,
                         thrust::raw_pointer_cast(A_rows.data()),
@@ -185,11 +184,12 @@ namespace xpic {
       cusparseCreateDnVec(&vecY, n_rows, 
                           thrust::raw_pointer_cast(Y.data()),cudaDataType);
 
-      thrust::fill(X.begin(),X.end(),1.0);
+
     }
 
-    void go() {
-
+    void go(std::size_t np) {
+      
+      thrust::fill(X.begin(),X.end(),1.0);
       t1.tick();
       idx_type dot = pow(2,xdim);
       // index of particles

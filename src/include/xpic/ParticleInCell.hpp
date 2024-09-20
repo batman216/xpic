@@ -3,8 +3,10 @@
 #include <sstream>
 #include <string>
 #include <numeric>
+#include <nccl.h>
 
 #include "../util.hpp"
+#include "ParallelCommunicator.hpp"
 
 #include "particle/Particles.hpp"
 
@@ -28,17 +30,28 @@ namespace xpic {
     typedef cell::Field<Node,x_dimension,thrust::device_vector> Field;
     typedef cell::Cells<Field,x_dimension> Cells;
 
+    ncclComm_t comm;
+    cudaStream_t s;
+    ncclUniqueId nccl_id;
+
     std::vector<Particles> all_particles;
     std::vector<std::size_t> np_init;
     std::vector<std::array<val_type,vdim>> v_thermal,v_drift;
+
     std::size_t n_species;
+
+    const std::size_t n_mpi, r_mpi;
+    const char flag_mpi;
 
     Cells cells;
 
     std::ifstream in_stream;
 
 
-    ParticleInCell(std::string filename = "xpic.in") {
+    ParticleInCell(ParallelCommunicator<std::size_t,val_type> *para,
+                   std::string filename = "xpic.in") 
+    : s(para->s), nccl_id(para->nccl_id),comm(para->comm),
+      n_mpi(para->mpi_size), r_mpi(para->mpi_rank), flag_mpi(para->flag) {
 
       in_stream.open(filename);
 
@@ -86,7 +99,7 @@ namespace xpic {
         all_particles.push_back(Particles(S2D(m),S2D(c)));
 
         std::getline(sn,np,','); // #particles in total
-        np_init.push_back(std::stoi(np)*cells.n_cell_tot);
+        np_init.push_back(std::stoi(np)*cells.n_cell_tot/n_mpi);
 
         std::getline(svd1,vd1,','); 
         std::getline(svd2,vd2,','); 
@@ -112,8 +125,6 @@ namespace xpic {
       
       in_stream.close();
 
-
-      
     }
 
   };

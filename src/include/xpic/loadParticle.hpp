@@ -63,8 +63,8 @@ namespace xpic {
       std::array<val_type,3> b= {18,9,9};
       for (std::size_t d=0; d<PIC::x_dimension; ++d) {
         
-        pic->all_particles[s].x[d].resize(pic->np_init[s]);
-        pic->all_particles[s].v[d].resize(pic->np_init[s]);
+        pic->all_particles[s].x[d]->resize(pic->np_init[s]);
+        pic->all_particles[s].v[d]->resize(pic->np_init[s]);
 
 
         std::random_device rd{};
@@ -75,13 +75,13 @@ namespace xpic {
         //                                             pic->cells.upper_bound[d]);  
 
         thrust::generate(h_vec.begin(),h_vec.end(),[&gen,&uni](){ return uni(gen); });
-        thrust::copy(h_vec.begin(),h_vec.end(),pic->all_particles[s].x[d].begin());
+        thrust::copy(h_vec.begin(),h_vec.end(),pic->all_particles[s].x[d]->begin());
 
         std::normal_distribution<val_type> nor{pic->v_drift[s][d],
                                                pic->v_thermal[s][d]};
 
         thrust::generate(h_vec.begin(),h_vec.end(),[&gen,&nor](){ return nor(gen); });
-        thrust::copy(h_vec.begin(),h_vec.end(),pic->all_particles[s].v[d].begin());
+        thrust::copy(h_vec.begin(),h_vec.end(),pic->all_particles[s].v[d]->begin());
 /*
         unsigned int seed = (d+23*s+43)*123237;
         thrust::transform(thrust::make_counting_iterator((std::size_t)0),
