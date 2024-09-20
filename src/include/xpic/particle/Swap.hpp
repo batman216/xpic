@@ -27,7 +27,7 @@ struct Swap {
   ncclComm_t comm;
   cudaStream_t s;
 
-  int n_mpi,r_mpi, np;
+  int n_mpi,r_mpi;
   char flag_mpi;
   std::array<val_type,2> bound;
   
@@ -35,7 +35,7 @@ struct Swap {
   std::array<thrust::device_vector<val_type>,6> r_recv_buffer, l_recv_buffer;
 
   Swap(PIC *pic) : s(pic->s), comm(pic->comm),flag_mpi(pic->flag_mpi), 
-  n_mpi(pic->n_mpi), r_mpi(pic->r_mpi), np(pic->np_init[0]) {
+  n_mpi(pic->n_mpi), r_mpi(pic->r_mpi) {
 
     val_type b = pic->cells.upper_bound[0], 
              a = pic->cells.lower_bound[0];
@@ -49,6 +49,7 @@ struct Swap {
   template <typename Particles>
   void operator()(Particles *p) {
 
+    std::size_t np = p->np;
     auto zit = p->particle_zip_iterator();
 
     using Tuple = thrust::tuple<val_type,val_type,val_type,val_type,val_type,val_type>;
@@ -117,10 +118,12 @@ struct Swap {
 
     std::cout << "rank" << r_mpi << ":" << np << std::endl;
     for (int d=0; d<3; d++) {
-     p->x[d]->resize(np);
-     p->v[d]->resize(np);
+      p->x[d]->resize(np);
+      p->v[d]->resize(np);
     }
 
+    p->np = np;
+    /// resize了之后，zip_iterator 需要重新初始化
     zit = p->particle_zip_iterator();
     if (r_mpi>0)
       thrust::copy(zit_lrecvbuf,zit_lrecvbuf+n_l_recv,zit+n_remain);

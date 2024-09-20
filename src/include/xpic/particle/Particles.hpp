@@ -12,6 +12,8 @@ namespace xpic {
       using value_t = val_type;
       const double mass, charge;
       
+      std::size_t np; // # particles
+      
       static const std::size_t x_dimension = xdim;
       static const std::size_t v_dimension = vdim;
       

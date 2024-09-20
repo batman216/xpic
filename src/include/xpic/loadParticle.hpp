@@ -59,17 +59,16 @@ namespace xpic {
       std::cout << "Particle speices " << s << " costs " << 
         sizeof(val_type)*(PIC::x_dimension+PIC::v_dimension)*pic->np_init[s]
         * 9.3132267461E-10  << "Gb" << std::endl;
-      
       std::array<val_type,3> b= {18,9,9};
       for (std::size_t d=0; d<PIC::x_dimension; ++d) {
         
         pic->all_particles[s].x[d]->resize(pic->np_init[s]);
         pic->all_particles[s].v[d]->resize(pic->np_init[s]);
 
+        pic->all_particles[s].np = pic->np_init[s];
 
         std::random_device rd{};
         std::mt19937 gen{rd()};
-        std::cout << "ub:" << pic->cells.upper_bound[d] << std::endl;
         std::normal_distribution<val_type> uni{b[d],2.0};
        // std::uniform_real_distribution<val_type> uni(pic->cells.lower_bound[d],
         //                                             pic->cells.upper_bound[d]);  

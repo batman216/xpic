@@ -33,6 +33,7 @@ namespace xpic {
     ncclComm_t comm;
     cudaStream_t s;
     ncclUniqueId nccl_id;
+    ParallelCommunicator<std::size_t,val_type> *para;
 
     std::vector<Particles> all_particles;
     std::vector<std::size_t> np_init;
@@ -50,7 +51,7 @@ namespace xpic {
 
     ParticleInCell(ParallelCommunicator<std::size_t,val_type> *para,
                    std::string filename = "xpic.in") 
-    : s(para->s), nccl_id(para->nccl_id),comm(para->comm),
+    : para(para),s(para->s), nccl_id(para->nccl_id),comm(para->comm),
       n_mpi(para->mpi_size), r_mpi(para->mpi_rank), flag_mpi(para->flag) {
 
       in_stream.open(filename);

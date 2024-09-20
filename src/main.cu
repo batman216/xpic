@@ -13,6 +13,7 @@
 #include "include/xpic/particle/Swap.hpp"
 #include "include/xpic/loadParticle.hpp"
 #include "include/xpic/interpolate.hpp"
+#include "include/xpic/DynamicAllocate.hpp"
 #include "include/xpic/ParallelCommunicator.hpp"
 #include "include/Timer.h"
 
@@ -38,18 +39,19 @@ int main(int argc, char** argv) {
   Timer t0("Load particle"),t1("partition"), t2("Interpolate"); 
 
   L_ xpic::loadParticle(&pic); _L
-    
 
+  xpic::particle::Swap swap(&pic);
+  p_ swap(&pic.all_particles[0]);_p
+
+  
+  xpic::DynamicAllocate dynamicAllocate(&pic);
+    dynamicAllocate(&pic);
 //  xpic::Interpolate interpolate(&pic.all_particles[0],&pic.cells);
 
   xpic::particle::SymplecticEuler push(&pic.all_particles[0],0.2);
 
   std::ofstream fieldos("field@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
   std::ofstream pos("Y@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
-
-  xpic::particle::Swap swap(&pic);
-  p_ swap(&pic.all_particles[0]);_p
-
   int step = 0, total_step = 5;
   while (step++<total_step) {
   
