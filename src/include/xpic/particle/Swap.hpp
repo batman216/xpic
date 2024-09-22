@@ -56,15 +56,19 @@ struct Swap {
 
     val_type a = bound[0], b = bound[1];
 
+    // 把超出边界[a,b)的粒子都放到数组最后
     auto mid = thrust::stable_partition(zit,zit+np,[a,b]__host__ __device__(Tuple t)
-                        { return thrust::get<0>(t)>a&&thrust::get<0>(t)<=b;});
+                        { return thrust::get<0>(t)>=a&&thrust::get<0>(t)<b;});
 
+    // 需要保留的粒子数和需要发送走的粒子数
     std::size_t n_remain = static_cast<std::size_t>(mid-zit),
                 n_send   = np - n_remain;
 
+    // 在需要发送走的粒子中，往左发送的放前面
     auto midlr = thrust::stable_partition(mid,mid+n_send,[b]__host__ __device__(Tuple t)
                          { return thrust::get<0>(t)<b;});
 
+    // 往左发送的粒子数和往右发送的粒子数
     std::size_t n_l_send = static_cast<std::size_t>(midlr-mid),
                 n_r_send = n_send - n_l_send;
  
@@ -92,7 +96,7 @@ struct Swap {
                                                      std::make_index_sequence<6>{});
     auto zit_lrecvbuf = make_zip_iterator_from_array(l_recv_buffer,
                                                      std::make_index_sequence<6>{});
-    ncclGroupStart();   // <--------------------
+    ncclGroupStart();   // <-----向左发送--------
     for (int d=0; d<6; d++) {
       if (r_mpi>0)
         ncclSend(thrust::raw_pointer_cast(send_buffer[d].data()),
@@ -103,7 +107,7 @@ struct Swap {
     }
     ncclGroupEnd();
 
-    ncclGroupStart();   // -------------------->
+    ncclGroupStart();   // -------向右发送-------->
     for (int d=0; d<6; d++) {
       if (r_mpi<n_mpi-1)
         ncclSend(thrust::raw_pointer_cast(send_buffer[d].data()+n_l_send),
@@ -116,13 +120,17 @@ struct Swap {
 
     np += - n_send + n_r_recv + n_l_recv;
 
-    std::cout << "rank" << r_mpi << ":" << np << std::endl;
     for (int d=0; d<3; d++) {
       p->x[d]->resize(np);
       p->v[d]->resize(np);
     }
 
-    p->np = np;
+    p->np = np; assert(p->np==p->x[0]->size());
+
+    int nhere=thrust::count_if(p->x[0]->begin(),p->x[0]->end(),
+                     [a,b]__host__ __device__(const val_type &x)
+                     { return x>=a && x < b;  });
+
     /// resize了之后，zip_iterator 需要重新初始化
     zit = p->particle_zip_iterator();
     if (r_mpi>0)

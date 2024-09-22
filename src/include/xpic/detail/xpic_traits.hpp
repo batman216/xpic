@@ -1,5 +1,36 @@
 #include <thrust/device_vector.h>
 
+template <typename val_type>
+struct mpiTypeTraits;
+
+template <>
+struct mpiTypeTraits<int> {
+  static constexpr MPI_Datatype type() {
+    return MPI_INT;
+  }
+};
+
+template <>
+struct mpiTypeTraits<double> {
+  static constexpr MPI_Datatype type() {
+    return MPI_DOUBLE;
+  }
+};
+
+template <>
+struct mpiTypeTraits<float> {
+  static constexpr MPI_Datatype type() {
+    return MPI_FLOAT;
+  }
+};
+
+template <>
+struct mpiTypeTraits<long double> {
+  static constexpr MPI_Datatype type() {
+    return MPI_LONG_DOUBLE;
+  }
+};
+
 template <typename idx_type>
 struct cusparseIndexTypeTraits {
   static constexpr cusparseIndexType_t type() {

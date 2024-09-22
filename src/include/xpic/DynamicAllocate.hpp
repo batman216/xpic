@@ -5,13 +5,14 @@
 #include <thrust/count.h>
 
 #include "ParallelCommunicator.hpp"
+#include "gizmos.hpp"
 
 #define RANK0 if(mpi_rank==0)
 
 
 namespace xpic {
 
-// MPI 相关的整形， 还是用 int 吧
+// MPI 相关的整型， 还是用 int 吧
 template <typename Particles,typename val_type>
 std::vector<int> getParticleNumInChunks(Particles* p,
                                                 std::array<val_type,2> bound,
@@ -25,8 +26,9 @@ std::vector<int> getParticleNumInChunks(Particles* p,
     val_type a = bound[0]+i*L_dac, b = a + L_dac;
     np_dac.push_back(thrust::count_if(p->x[0]->begin(),p->x[0]->end(),
                      [a,b]__host__ __device__(val_type x)
-                     { return x>a && x<b;  }));
+                     { return x>=a && x<b;  }));
   }
+  assert(std::accumulate(np_dac.begin(),np_dac.end(),0)==p->np);
   return np_dac;
 
 }
@@ -37,7 +39,7 @@ struct DynamicAllocate {
   using val_type = PIC::value_t;
 
   /// 将总粒子数分成 n_max*mpi_size 份
-  const std::size_t n_max = 4;
+  const std::size_t n_max = 10;
   val_type L, L_loc, L_dac;
 
   const int mpi_size, mpi_rank, n_dac_tot;
@@ -48,26 +50,27 @@ struct DynamicAllocate {
 
   std::vector<int> np_dac_local, np_dac_global; // # particles in each DAC
   std::vector<int> np_loc_vec;
-  std::vector<float> weight_p, weight_dac;
 
+  std::vector<val_type> loc_bound_vec;
   std::array<val_type,2> loc_bound;
 
   DynamicAllocate(PIC* pic) :
   mpi_size(pic->para->mpi_size),
   mpi_rank(pic->para->mpi_rank),
-  n_dac_tot(pic->para->mpi_size*4),
+  n_dac_tot(pic->para->mpi_size*n_max),
   L(pic->cells.upper_bound[0]-pic->cells.lower_bound[0]){
     // initial 
-    n_dac = 4; 
+    n_dac = n_max; 
 
     L_loc = L / mpi_size;
     L_dac = L_loc / n_dac;
   
     np_loc_vec.resize(mpi_size);
     n_dac_global.resize(mpi_size);
-    weight_p.resize(n_dac_tot); weight_dac.resize(n_dac_tot);
     np_dac_local.resize(n_dac);
     np_dac_global.resize(n_dac_tot);
+    
+    loc_bound_vec.resize(mpi_size*2);
 
     loc_bound[0] = pic->cells.lower_bound[0] + mpi_rank*L_loc;
     loc_bound[1] = loc_bound[0] + n_dac*L_dac;
@@ -87,8 +90,6 @@ struct DynamicAllocate {
     // 理想情况下，每个rank都有np_mean个粒子就最好了
     int np_mean = np_tot / mpi_size;
 
-    RANK0
-      std::cout << "#particle in all ranks: " << np_tot << std::endl;
 
     np_dac_local = getParticleNumInChunks(&pic->all_particles[0],
                                           loc_bound, n_dac);
@@ -100,9 +101,9 @@ struct DynamicAllocate {
     MPI_Gather(&np_loc,1,MPI_INT,np_loc_vec.data(),1,MPI_INT,0,MPI_COMM_WORLD);
 
     int *p; 
-    if (mpi_rank==0) {
+    RANK0 {
       std::copy(np_dac_local.begin(),np_dac_local.end(),
-                               np_dac_global.begin());
+                np_dac_global.begin());
       p = np_dac_global.data() + n_dac; // 
     }
     for (int r=1; r<mpi_size; r++) {
@@ -111,33 +112,40 @@ struct DynamicAllocate {
       if (mpi_rank == 0) {
         MPI_Recv(p,n_dac_global[r],MPI_INT,r,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
       }
-      MPI_Barrier(MPI_COMM_WORLD);
       p += n_dac_global[r];
-    }
+
+    } MPI_Barrier(MPI_COMM_WORLD);
 
 
-    RANK0 { // 重新分配n_dac
-      std::copy(np_dac_global.begin(),np_dac_global.end(),
-                std::ostream_iterator<int>(std::cout," "));
+    RANK0 { // 动态规划，重新分配n_dac
+      assert(sumArray(np_dac_global)==np_tot);
       int i=0;
       for (int r=0; r<mpi_size; r++) {
         int np_buf=0, n_buf=0;
-        while ((np_buf<np_mean*0.95) && i<n_dac_tot) {
+        while ((np_buf<np_mean) && n_buf<n_max*1.5
+                                && i < n_dac_tot) {
           np_buf += np_dac_global[i++];
           n_buf++;
-          std::cout<<std::endl;
-          std::cout << i << "," << np_buf << "," << r<<std::endl;
         } 
         n_dac_global[r] = n_buf;
       }
       int rem = n_dac_tot-std::accumulate(n_dac_global.begin(),n_dac_global.end(),0);
       n_dac_global[mpi_size-1] += rem;
 
-      std::cout << "--" << std::endl;
-      std::copy(n_dac_global.begin(),n_dac_global.end(),
-                std::ostream_iterator<int>(std::cout," "));
-      std::cout << "--" << std::endl;
+      std::puts("\n---- Dynamic allocate:");
+      printArray(n_dac_global);
+
+      loc_bound_vec[0] = 0;
+      loc_bound_vec[1] = n_dac_global[0]*L_dac;
+      for (int i=2; i<2*mpi_size-1; i+=2) {
+        loc_bound_vec[i] = loc_bound_vec[i-1];
+        loc_bound_vec[i+1] = loc_bound_vec[i] + n_dac_global[i/2]*L_dac;
+      }
     } MPI_Barrier(MPI_COMM_WORLD);
+    
+    MPI_Scatter(n_dac_global.data(),1,MPI_INT,&n_dac,1,MPI_INT,0,MPI_COMM_WORLD);
+    MPI_Scatter(loc_bound_vec.data(),2,mpiTypeTraits<val_type>::type(),
+                    loc_bound.data(),2,mpiTypeTraits<val_type>::type(),0,MPI_COMM_WORLD);
 
   }
 

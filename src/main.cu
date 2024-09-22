@@ -41,30 +41,49 @@ int main(int argc, char** argv) {
   L_ xpic::loadParticle(&pic); _L
 
   xpic::particle::Swap swap(&pic);
-  p_ swap(&pic.all_particles[0]);_p
-
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
   
   xpic::DynamicAllocate dynamicAllocate(&pic);
-    dynamicAllocate(&pic);
-//  xpic::Interpolate interpolate(&pic.all_particles[0],&pic.cells);
-
-  xpic::particle::SymplecticEuler push(&pic.all_particles[0],0.2);
+  dynamicAllocate(&pic);
+  swap.bound = dynamicAllocate.loc_bound;
+  
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  swap(&pic.all_particles[0]);
+  xpic::particle::SymplecticEuler push(&pic.all_particles[0],0.02);
 
   std::ofstream fieldos("field@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
   std::ofstream pos("Y@"+std::to_string(para.mpi_rank)+".data",std::ios::out);
-  int step = 0, total_step = 5;
+  int step = 0, total_step = 60;
   while (step++<total_step) {
   
+    if (step%10==1) {
+      dynamicAllocate(&pic);
+      swap.bound = dynamicAllocate.loc_bound;
+      swap(&pic.all_particles[0]);
+      swap(&pic.all_particles[0]);
+      swap(&pic.all_particles[0]);
+      swap(&pic.all_particles[0]);
+
+    }
+    if (step%10==1) {
+      for (std::size_t d=0; d<3; d++) {
+        thrust::copy(pic.all_particles[0].x[d]->begin(),
+                     pic.all_particles[0].x[d]->end(),
+                     std::ostream_iterator<Real>(pos," "));
+        pos << std::endl;
+      }
+    }
+    
     push.push(&pic.all_particles[0],&pic.cells);
     swap(&pic.all_particles[0]);
 
-    for (std::size_t d=0; d<3; d++) {
-      thrust::copy(pic.all_particles[0].x[d]->begin(),
-                   pic.all_particles[0].x[d]->end(),
-                   std::ostream_iterator<Real>(pos," "));
-      pos << std::endl;
-    }
-    
   }
 
   fieldos.close();
