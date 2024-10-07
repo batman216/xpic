@@ -28,7 +28,7 @@ namespace xpic {
 
     typedef cell::Node<val_type,v_dimension> Node;
     typedef cell::Field<Node,x_dimension,thrust::device_vector> Field;
-    typedef cell::Cells<Field,x_dimension> Cells;
+    typedef cell::Cells<val_type,x_dimension,v_dimension> Cells;
 
     ncclComm_t comm;
     cudaStream_t s;
@@ -68,11 +68,52 @@ namespace xpic {
         cells.lower_bound[d] = std::stod(lbd);
         std::getline(ubdss,ubd,',');
         cells.upper_bound[d] = std::stod(ubd);
-
+        cells.dx[d] = (cells.upper_bound[d]-cells.lower_bound[d])
+                       /cells.n_cell[d];
       }
+
+      for (std::size_t d=0; d<x_dimension; ++d) {
+        cells.lower_bound_loc[d] = cells.lower_bound[d];
+        cells.upper_bound_loc[d] = cells.upper_bound[d];
+        cells.n_cell_loc_noghost[d] = cells.n_cell[d];
+        cells.n_cell_loc[d] = cells.n_cell[d];
+      }
+
       cells.n_cell_tot = std::accumulate(cells.n_cell.begin(),cells.n_cell.end(),
                                          1,std::multiplies<std::size_t>());
-      std::cout << "#cell: " << cells.n_cell_tot << std::endl;
+
+      /// 只并行第xdim-1个维度
+      cells.n_cell_loc_noghost[xdim-1] /= n_mpi;
+      cells.n_cell_loc[xdim-1] = cells.n_cell_loc_noghost[xdim-1]
+                               + cells.n_para_ghost*2;
+      cells.n_cell_tot_loc = std::accumulate(cells.n_cell_loc.begin(),cells.n_cell_loc.end(),
+                                             1,std::multiplies<std::size_t>());
+      cells.n_cell_tot_loc_noghost = std::accumulate(cells.n_cell_loc_noghost.begin(),
+                                                     cells.n_cell_loc_noghost.end(),
+                                                     1,std::multiplies<std::size_t>());
+
+      if constexpr (xdim==3)
+        cells.n_para_tot = cells.n_para_ghost*cells.n_cell[1]*cells.n_cell[0];
+      else if constexpr (xdim == 2)
+        cells.n_para_tot = cells.n_para_ghost*cells.n_cell[0];
+      else
+        cells.n_para_tot = cells.n_para_ghost;
+
+
+
+      val_type L = cells.upper_bound[xdim-1] - cells.lower_bound[xdim-1],
+               l = L / n_mpi;
+      cells.lower_bound_loc[xdim-1] = l* r_mpi;
+      cells.upper_bound_loc[xdim-1] = l*(r_mpi+1);
+        
+      for (int d=0; d<vdim; d++) {
+        cells.Efield[d].resize(cells.n_cell_tot_loc);
+        cells.Bfield[d].resize(cells.n_cell_tot_loc);
+        cells.crnt[d].resize(cells.n_cell_tot_loc);
+      }
+
+
+      std::cout << "#cell: " << cells.n_cell_tot_loc << std::endl;
       in_stream.close();
 
       in_stream.open(filename);

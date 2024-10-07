@@ -23,6 +23,7 @@ template <typename PIC>
 struct Swap {
 
   using val_type = PIC::value_t;
+  const int xdim = PIC::x_dimension;
   nccl_traits<val_type> ncclType;
   ncclComm_t comm;
   cudaStream_t s;
@@ -37,14 +38,15 @@ struct Swap {
   Swap(PIC *pic) : s(pic->s), comm(pic->comm),flag_mpi(pic->flag_mpi), 
   n_mpi(pic->n_mpi), r_mpi(pic->r_mpi) {
 
-    val_type b = pic->cells.upper_bound[0], 
-             a = pic->cells.lower_bound[0];
-    val_type L = b-a, localL = L / n_mpi;
+    val_type b = pic->cells.upper_bound_loc[xdim-1], 
+             a = pic->cells.lower_bound_loc[xdim-1];
+    val_type localL = b-a;
 
     bound[0] = r_mpi * localL;
     bound[1] = bound[0] + localL;
 
   }
+
 
   template <typename Particles>
   void operator()(Particles *p) {
@@ -56,9 +58,10 @@ struct Swap {
 
     val_type a = bound[0], b = bound[1];
 
+    const int D = xdim-1; // 并行的维度
     // 把超出边界[a,b)的粒子都放到数组最后
     auto mid = thrust::stable_partition(zit,zit+np,[a,b]__host__ __device__(Tuple t)
-                        { return thrust::get<0>(t)>=a&&thrust::get<0>(t)<b;});
+                        { return thrust::get<2>(t)>=a&&thrust::get<2>(t)<b;});
 
     // 需要保留的粒子数和需要发送走的粒子数
     std::size_t n_remain = static_cast<std::size_t>(mid-zit),
@@ -66,7 +69,7 @@ struct Swap {
 
     // 在需要发送走的粒子中，往左发送的放前面
     auto midlr = thrust::stable_partition(mid,mid+n_send,[b]__host__ __device__(Tuple t)
-                         { return thrust::get<0>(t)<b;});
+                         { return thrust::get<2>(t)<b;});
 
     // 往左发送的粒子数和往右发送的粒子数
     std::size_t n_l_send = static_cast<std::size_t>(midlr-mid),
@@ -125,9 +128,9 @@ struct Swap {
       p->v[d]->resize(np);
     }
 
-    p->np = np; assert(p->np==p->x[0]->size());
+    p->np = np; assert(p->np==p->x[D]->size());
 
-    int nhere=thrust::count_if(p->x[0]->begin(),p->x[0]->end(),
+    int nhere=thrust::count_if(p->x[D]->begin(),p->x[D]->end(),
                      [a,b]__host__ __device__(const val_type &x)
                      { return x>=a && x < b;  });
 

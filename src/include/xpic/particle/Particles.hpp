@@ -18,6 +18,9 @@ namespace xpic {
       static const std::size_t v_dimension = vdim;
       
       std::unordered_map<std::size_t,Container<val_type>*> x,v;
+      Container<val_type> gamma;
+
+
 
       Particles(double mass, double charge) : mass(mass), charge(charge) {
 

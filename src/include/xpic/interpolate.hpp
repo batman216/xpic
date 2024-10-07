@@ -32,35 +32,21 @@ namespace xpic {
     return  (n==0) ? 1 : (val*static_pow(val,n-1));
   }
 
-  template <typename ...Args>
+  template <typename idx_type, typename val_type, std::size_t xdim>
   struct calVal {
 
-    static constexpr std::size_t xdim = sizeof...(Args)/2;
-    using val_type = typename std::tuple_element<0, std::tuple<Args...>>::type;
-    using idx_type = typename std::tuple_element<xdim, std::tuple<Args...>>::type;
-    
     using tuple_reference = typename tupleTraits<val_type,idx_type,xdim>::tuple_reference;
     using cell_tuple = typename tupleTraits<val_type,idx_type,xdim>::cell_tuple;
     using particle_tuple = typename tupleTraits<val_type,idx_type,xdim>::particle_tuple;
 
-    std::tuple<Args...> hn;
-    std::array<val_type,xdim> dx; 
+    std::array<val_type,xdim> x0,dx; 
     std::array<idx_type,xdim> ng;
 
     __host__ __device__
-    calVal(Args...args) : hn{ args... } {
-      dx[0] = std::get<0>(hn);
-      ng[0] = std::get<0+xdim>(hn);
-      if constexpr (xdim>1) {
-        dx[1] = std::get<1>(hn);
-        ng[1] = std::get<1+xdim>(hn);
-      } 
-      if constexpr (xdim>2) {
-        dx[2] = std::get<2>(hn);
-        ng[2] = std::get<2+xdim>(hn);
-      }
-    }
-
+    calVal(std::array<val_type,xdim> x0,
+           std::array<val_type,xdim> dx,
+           std::array<idx_type,xdim> ng) 
+    : x0(x0),dx(dx),ng(ng) {}
 
 
     template <std::size_t...idx>
@@ -86,11 +72,11 @@ namespace xpic {
 
       std::array<val_type,xdim> idx,wei;
       
-      wei[0] = std::modf(TGET(TGET(t,0),0)/dx[0],idx.data());
+      wei[0] = std::modf((TGET(TGET(t,0),0)-x0[0]-0*dx[0])/dx[0],idx.data());
       if constexpr (xdim>1)
-        wei[1] = std::modf(TGET(TGET(t,0),1)/dx[1],idx.data()+1);
+        wei[1] = std::modf((TGET(TGET(t,0),1)-x0[1]-0*dx[1])/dx[1],idx.data()+1);
       if constexpr (xdim>2) 
-        wei[2] = std::modf(TGET(TGET(t,0),2)/dx[2],idx.data()+2);
+        wei[2] = std::modf((TGET(TGET(t,0),2)-x0[2]-0*dx[2])/dx[2],idx.data()+2);
       
       TGET(t,1)=calIndex(std::make_index_sequence<num_nodes>{},idx,ng);
       TGET(t,2)=calWeight(std::make_index_sequence<num_nodes>{},wei);
@@ -104,6 +90,7 @@ namespace xpic {
 
     Timer t1, t2;
     static const std::size_t xdim = Particle::x_dimension;
+    static const std::size_t vdim = Particle::v_dimension;
 
     using val_type = Particle::value_t;
     using idx_type = std::size_t;
@@ -114,7 +101,7 @@ namespace xpic {
 
     cusparseHandle_t     handle = NULL;
     cusparseSpMatDescr_t matA;
-    cusparseDnVecDescr_t vecX, vecY;
+    cusparseDnVecDescr_t vecVeclocity[vdim], vecCurrent[vdim];
 
     void*                dBuffer    = NULL;
     size_t               bufferSize = 0;
@@ -145,9 +132,16 @@ namespace xpic {
       t1.open("prepare the matrix");
       t2.open("cuSPARSE");
 
-      n_g = cells->n_cell_tot;
-      n_p = particles->x[0].size();
+      std::puts("Interpolater good");
+      using thrust::make_zip_iterator;
+    }
 
+    void go() {
+      
+      t1.tick();
+      n_g = cells->n_cell_tot_loc_noghost;
+      n_p = particles->x[0]->size();
+      
       n_rows = n_g;
       n_cols = n_p;
       n_nz   = n_p*std::pow(2,xdim);    
@@ -155,13 +149,10 @@ namespace xpic {
       A_rows.resize(n_nz);
       A_cols.resize(n_nz);
       A_vals.resize(n_nz);
-      X.resize(n_cols); Y.resize(n_rows);
 
-      std::puts("Interpolater good");
-      using thrust::make_zip_iterator;
-      z_itor_p   = make_zip_iterator(particles->x[0].begin(),
-                                     particles->x[1].begin(),
-                                     particles->x[2].begin());
+      z_itor_p   = make_zip_iterator(particles->x[0]->begin(),
+                                     particles->x[1]->begin(),
+                                     particles->x[2]->begin());
       z_itor_col = make_zip_iterator(A_cols.begin()+0*n_p,A_cols.begin()+1*n_p,
                                      A_cols.begin()+2*n_p,A_cols.begin()+3*n_p,
                                      A_cols.begin()+4*n_p,A_cols.begin()+5*n_p,
@@ -171,6 +162,7 @@ namespace xpic {
                                      A_vals.begin()+4*n_p,A_vals.begin()+5*n_p,
                                      A_vals.begin()+6*n_p,A_vals.begin()+7*n_p);
       zz_itor    = make_zip_iterator(z_itor_p,z_itor_col,z_itor_val);
+
       cusparseCreate(&handle);
       cusparseCreateCoo(&matA, n_cols, n_rows, n_nz,
                         thrust::raw_pointer_cast(A_rows.data()),
@@ -179,18 +171,16 @@ namespace xpic {
                         cusparseIndexType,
                         CUSPARSE_INDEX_BASE_ZERO,
                         cudaDataType);
-      cusparseCreateDnVec(&vecX, n_cols,    
-                          thrust::raw_pointer_cast(X.data()),cudaDataType);
-      cusparseCreateDnVec(&vecY, n_rows, 
-                          thrust::raw_pointer_cast(Y.data()),cudaDataType);
+      for (int d=0; d<vdim; d++) {
+        cusparseCreateDnVec(&vecVeclocity[d], n_cols,    
+                            thrust::raw_pointer_cast(particles->v[d]->data()),
+                            cudaDataType);
+        auto p = cells->crnt[d].data() + cells->n_para_tot;
+        cusparseCreateDnVec(&vecCurrent[d], n_rows, 
+                            thrust::raw_pointer_cast(p),
+                            cudaDataType);
+      } 
 
-
-    }
-
-    void go(std::size_t np) {
-      
-      thrust::fill(X.begin(),X.end(),1.0);
-      t1.tick();
       idx_type dot = pow(2,xdim);
       // index of particles
       // cuSPARSE requires that A_rows must be sorted.
@@ -199,39 +189,43 @@ namespace xpic {
                         A_rows.begin(),[dot]__host__ __device__(idx_type idx) 
                         { return idx/dot; });
      
-      if constexpr (xdim==3) {
-        val_type d1,d2,d3; 
-        idx_type n1,n2,n3;
-        n1 = cells->n_cell[0];
-        n2 = cells->n_cell[1];
-        n3 = cells->n_cell[2];
-        d1 = (cells->upper_bound[0]-cells->lower_bound[0])/n1; 
-        d2 = (cells->upper_bound[1]-cells->lower_bound[1])/n2; 
-        d3 = (cells->upper_bound[2]-cells->lower_bound[2])/n3; 
-        
-        thrust::for_each(zz_itor,zz_itor+n_p,calVal(d1,d2,d3,n1,n2,n3));
-      }
+      thrust::for_each(zz_itor,zz_itor+n_p,calVal(cells->lower_bound_loc,
+                                                  cells->dx,cells->n_cell_loc_noghost));
 
       cudaDeviceSynchronize();
       t1.tock();
-      // 最后一个网格不一定有粒子，因此最大行数不一定是网格总数
 
       t2.tick();
-      cusparseSpMV_bufferSize(handle,
-                              CUSPARSE_OPERATION_TRANSPOSE,
-                              &alpha,matA,vecX,&beta,vecY,cudaDataType,
-                              CUSPARSE_SPMV_ALG_DEFAULT,&bufferSize);
-      cudaMalloc(&dBuffer,bufferSize); 
-      cusparseSpMV(handle,CUSPARSE_OPERATION_TRANSPOSE,
-                   &alpha,matA,vecX,&beta,vecY,cudaDataType,
-                   CUSPARSE_SPMV_ALG_DEFAULT,dBuffer);
+      for (int d=0; d<vdim; d++) {
+        cusparseSpMV_bufferSize(handle,
+                                CUSPARSE_OPERATION_TRANSPOSE,
+                                &alpha,matA,vecVeclocity[d],
+                                &beta,vecCurrent[d],cudaDataType,
+                                CUSPARSE_SPMV_ALG_DEFAULT,&bufferSize);
+        cudaMalloc(&dBuffer,bufferSize); 
+        cusparseSpMV(handle,CUSPARSE_OPERATION_TRANSPOSE,
+                     &alpha,matA,vecVeclocity[d],
+                     &beta,vecCurrent[d],cudaDataType,
+                     CUSPARSE_SPMV_ALG_DEFAULT,dBuffer);
+
+        // 乘上电荷
+        val_type c = particles->charge;
+        thrust::for_each(cells->crnt[d].begin(),cells->crnt[d].end(),
+                         [c]__host__ __device__(val_type& val) { val *= c; });
+      }
+
+
       cudaDeviceSynchronize();
       t2.tock();
     }
 
     ~Interpolate() {
-      cusparseDestroySpMat(matA); cusparseDestroyDnVec(vecX); 
-      cusparseDestroyDnVec(vecY); cusparseDestroy(handle); 
+      cusparseDestroySpMat(matA); 
+      for (int d=0; d<vdim; d++) {
+        cusparseDestroyDnVec(vecVeclocity[d]); 
+        cusparseDestroyDnVec(vecCurrent[d]); 
+      }
+      cusparseDestroy(handle); 
     }   
 
   };

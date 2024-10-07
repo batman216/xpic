@@ -59,7 +59,7 @@ namespace xpic {
       std::cout << "Particle speices " << s << " costs " << 
         sizeof(val_type)*(PIC::x_dimension+PIC::v_dimension)*pic->np_init[s]
         * 9.3132267461E-10  << "Gb" << std::endl;
-      std::array<val_type,3> b= {9,9,15};
+      std::array<val_type,3> b= {18,9,9};
       for (std::size_t d=0; d<PIC::x_dimension; ++d) {
         
         pic->all_particles[s].x[d]->resize(pic->np_init[s]);

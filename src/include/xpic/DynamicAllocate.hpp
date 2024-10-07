@@ -33,13 +33,17 @@ std::vector<int> getParticleNumInChunks(Particles* p,
 
 }
 
+// 动态负载粒子，目的是尽量使得每张显卡上的粒子数量一样多
+// 基本思想是，将整个模拟区域划分成 mpi_size*n_max 个区域，
+// 每个区域叫做一个 dynamic allocation chunk (DAC)
+// 通过统计每个DAC中的粒子数来决定每张显卡负责几个DAC
 template <typename PIC>
 struct DynamicAllocate {
   
   using val_type = PIC::value_t;
 
   /// 将总粒子数分成 n_max*mpi_size 份
-  const std::size_t n_max = 10;
+  const std::size_t n_max = 6;
   val_type L, L_loc, L_dac;
 
   const int mpi_size, mpi_rank, n_dac_tot;
@@ -59,6 +63,7 @@ struct DynamicAllocate {
   mpi_rank(pic->para->mpi_rank),
   n_dac_tot(pic->para->mpi_size*n_max),
   L(pic->cells.upper_bound[0]-pic->cells.lower_bound[0]){
+
     // initial 
     n_dac = n_max; 
 
@@ -97,7 +102,7 @@ struct DynamicAllocate {
     // 告诉rank0每个rank现在有几个DAC, 存在 n_dac_global 里面
     MPI_Gather(&n_dac,1,MPI_INT,n_dac_global.data(),1,MPI_INT,0,MPI_COMM_WORLD);
 
-    /// 告诉rank0每个rank的每个DAC里面都有多少粒子
+    /// 告诉rank0每个rank的每个DAC里面都有多少粒子, 存在 np_loc_vec 里
     MPI_Gather(&np_loc,1,MPI_INT,np_loc_vec.data(),1,MPI_INT,0,MPI_COMM_WORLD);
 
     int *p; 
@@ -122,18 +127,18 @@ struct DynamicAllocate {
       int i=0;
       for (int r=0; r<mpi_size; r++) {
         int np_buf=0, n_buf=0;
-        while ((np_buf<np_mean) && n_buf<n_max*1.5
-                                && i < n_dac_tot) {
+        while (np_buf<np_mean && n_buf<n_max*2
+                              && i < n_dac_tot) {
           np_buf += np_dac_global[i++];
           n_buf++;
-        } 
-        n_dac_global[r] = n_buf;
+        } n_dac_global[r] = n_buf;
       }
-      int rem = n_dac_tot-std::accumulate(n_dac_global.begin(),n_dac_global.end(),0);
-      n_dac_global[mpi_size-1] += rem;
+
+      n_dac_global[mpi_size-1] += n_dac_tot-sumArray(n_dac_global);
 
       std::puts("\n---- Dynamic allocate:");
-      printArray(n_dac_global);
+      printArray(n_dac_global); std::cout<<std::endl;
+      printArray(np_dac_global); std::cout<<std::endl;
 
       loc_bound_vec[0] = 0;
       loc_bound_vec[1] = n_dac_global[0]*L_dac;
